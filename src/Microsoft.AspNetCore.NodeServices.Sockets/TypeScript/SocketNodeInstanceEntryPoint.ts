@@ -8,6 +8,7 @@ import { Duplex } from 'stream';
 import { parseArgs } from '../../Microsoft.AspNetCore.NodeServices/TypeScript/Util/ArgsUtil';
 import { exitWhenParentExits } from '../../Microsoft.AspNetCore.NodeServices/TypeScript/Util/ExitWhenParentExits';
 import * as virtualConnectionServer from './VirtualConnections/VirtualConnectionServer';
+import { tryRequire } from '../../../../DSerfozo.NodeServices.Sockets/Typescript/Util/TryRequire';
 
 // Webpack doesn't support dynamic requires for files not present at compile time, so grab a direct
 // reference to Node's runtime 'require' function.
@@ -20,11 +21,14 @@ const server = net.createServer().on('listening', () => {
 
 // Each virtual connection represents a separate invocation
 virtualConnectionServer.createInterface(server).on('connection', (connection: Duplex) => {
-    readline.createInterface(connection, null).on('line', line => {
+    const rl = readline.createInterface(connection, null).on('line', line => {
         try {
             // Get a reference to the function to invoke
             const invocation = JSON.parse(line) as RpcInvocation;
-            const invokedModule = dynamicRequire(path.resolve(process.cwd(), invocation.moduleName));
+            let invokedModule = tryRequire(invocation.moduleName);
+            if (!invokedModule) {
+                invokedModule = tryRequire(path.resolve(process.cwd(), invocation.moduleName));
+            }
             const invokedFunction = invocation.exportedFunctionName ? invokedModule[invocation.exportedFunctionName] : invokedModule;
 
             // Prepare a callback for accepting non-streamed JSON responses
@@ -48,6 +52,7 @@ virtualConnectionServer.createInterface(server).on('connection', (connection: Du
                 enumerable: true,
                 get: (): Duplex => {
                     hasInvokedCallback = true;
+                    rl.close();
                     return connection;
                 }
             });
